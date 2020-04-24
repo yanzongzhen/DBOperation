@@ -41,7 +41,7 @@ require (
 	github.com/tsuna/gohbase v0.0.0-20190823190353-a66bcc9075db
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/yanzongzhen/Logger v1.0.0
-	github.com/yanzongzhen/utils v1.0.6
+	github.com/yanzongzhen/utils v1.0.11
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa

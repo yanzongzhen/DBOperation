@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/yanzongzhen/Logger v1.0.0
-	github.com/yanzongzhen/utils v1.0.0
+	github.com/yanzongzhen/utils v1.0.2
 	github.com/aristanetworks/goarista v0.0.0-20200116213345-db3bc036e595 // indirect
 	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.18+incompatible

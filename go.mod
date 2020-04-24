@@ -41,13 +41,12 @@ require (
 	github.com/tsuna/gohbase v0.0.0-20190823190353-a66bcc9075db
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/yanzongzhen/Logger v1.0.0
-	github.com/yanzongzhen/utils v1.0.11
+	github.com/yanzongzhen/utils v1.0.12
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24 // indirect
-	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 	sigs.k8s.io/yaml v1.1.0 // indirect
 )

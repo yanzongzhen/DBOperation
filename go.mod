@@ -3,13 +3,11 @@ module github.com/yanzongzhen/DBOperation
 go 1.13
 
 require (
-	github.com/yanzongzhen/Logger v1.0.0
-	github.com/yanzongzhen/utils v1.0.4
 	github.com/aristanetworks/goarista v0.0.0-20200116213345-db3bc036e595 // indirect
 	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect
-	github.com/coreos/go-systemd/v22 v22.0.0 // indirect
+	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
 	github.com/cznic/b v0.0.0-20181122101859-a26611c4d92d // indirect
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548 // indirect
@@ -42,6 +40,8 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/tsuna/gohbase v0.0.0-20190823190353-a66bcc9075db
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
+	github.com/yanzongzhen/Logger v1.0.0
+	github.com/yanzongzhen/utils v1.0.12
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa

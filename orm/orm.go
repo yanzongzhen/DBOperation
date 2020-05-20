@@ -71,14 +71,86 @@ func (s *mapStringScan) GetByName(name string) string {
 	return s.row[name]
 }
 
-func (s *mapStringScan) Unmarshal(ptr interface{}) error {
-	data := s.Get()
-	v := reflect.ValueOf(ptr).Elem()
-	if reflect.TypeOf(ptr).Kind() != reflect.Ptr {
-		return errors.New("param must be pointer")
+func (s *mapStringScan) GetColumnType(name string) *sql.ColumnType {
+	for i, c := range s.colNames {
+		if c == name {
+			return s.colTypes[i]
+		}
 	}
+	return nil
+}
+
+func indirect(v reflect.Value, decodingNull bool) reflect.Value {
+	v0 := v
+	haveAddr := false
+
+	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
+		haveAddr = true
+		v = v.Addr()
+	}
+	for {
+		// Load value from interface, but only if the result will be
+		// usefully addressable.
+		if v.Kind() == reflect.Interface && !v.IsNil() {
+			e := v.Elem()
+			if e.Kind() == reflect.Ptr && !e.IsNil() && (!decodingNull || e.Elem().Kind() == reflect.Ptr) {
+				haveAddr = false
+				v = e
+				continue
+			}
+		}
+
+		if v.Kind() != reflect.Ptr {
+			break
+		}
+
+		if v.Elem().Kind() != reflect.Ptr && decodingNull && v.CanSet() {
+			break
+		}
+
+		// Prevent infinite loop if v is an interface pointing to its own address:
+		//     var v interface{}
+		//     v = &v
+		if v.Elem().Kind() == reflect.Interface && v.Elem().Elem() == v {
+			v = v.Elem()
+			break
+		}
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		if haveAddr {
+			v = v0 // restore original value after round-trip Value.Addr().Elem()
+			haveAddr = false
+		} else {
+			v = v.Elem()
+		}
+	}
+	return v
+}
+
+func (s *mapStringScan) Unmarshal(value reflect.Value) error {
+
+	data := s.Get()
+	v := indirect(value, false)
+	t := v.Type()
+
+	switch v.Kind() {
+	case reflect.Map:
+		if t.Key().Kind() != reflect.String {
+			return errors.New("key type not support:" + t.Key().Kind().String())
+		}
+		if v.IsNil() {
+			v.Set(reflect.MakeMap(t))
+		}
+		break
+	case reflect.Struct:
+		break
+	default:
+		return errors.New("un support type:" + v.Kind().String())
+	}
+
 	// ptr is map
-	if reflect.ValueOf(ptr).Elem().Kind() == reflect.Map {
+	if v.Kind() == reflect.Map {
 		for index := 0; index < s.colCount; index++ {
 			value := s.GetByName(s.colNames[index])
 			// database column type
@@ -106,16 +178,16 @@ func (s *mapStringScan) Unmarshal(ptr interface{}) error {
 		}
 		return nil
 	}
-	// not map but it is struct
-	if reflect.ValueOf(ptr).Elem().Kind() != reflect.Struct {
-		return errors.New("param must be struct pointer")
-	}
+
 	for i := 0; i < v.NumField(); i++ {
 		// Structure field
 		fieldInfo := v.Type().Field(i)
 		tag := fieldInfo.Tag
 		name := tag.Get("orm")
-		if name == "" {
+		if name == "-" {
+			continue
+		}
+		if utils.IsEmpty(name) {
 			// Structure field name is used by default
 			name = strings.ToLower(fieldInfo.Name)
 		}
@@ -138,50 +210,114 @@ func (s *mapStringScan) Unmarshal(ptr interface{}) error {
 				return errors.New(fieldInfo.Name + " value not empty")
 			}
 		}
+		cType := s.GetColumnType(name)
+		if cType == nil {
+			continue
+		}
 		// data binding
-		if err := s.unmarshal(v.Field(i), value); err != nil {
-			return fmt.Errorf("%s: %v", name, err)
+		if err := s.unmarshal(v.Field(i), value, cType); err != nil {
+			//return fmt.Errorf("%s: %v", name, err)
+			logger.Error(err)
+			continue
 		}
 	}
 	return nil
 }
 
-func (s *mapStringScan) unmarshal(field reflect.Value, value string) error {
-	var err error
-	switch field.Kind() {
-	case reflect.String:
+func (s *mapStringScan) unmarshal(field reflect.Value, value string, cType *sql.ColumnType) error {
+	//logger.Debug(cType.Name())
+	//logger.Debug(cType.DatabaseTypeName())
+	if field.Kind() == reflect.String {
 		field.SetString(value)
-	case reflect.Int:
-		var i int64
-		i, err = strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			err = errors.New("param type not match,require:int")
-		}
-		field.SetInt(i)
-	case reflect.Bool:
-		b := false
-		b, err = strconv.ParseBool(value)
-		if err != nil {
-			err = errors.New("param type not match,require:bool")
-		}
-		field.SetBool(b)
-	case reflect.Float64:
-		var floatV float64
-		floatV, err = strconv.ParseFloat(value, 64)
-		if err != nil {
-			err = errors.New("param type not match,require:float")
-		}
-		field.SetFloat(floatV)
-	default:
-		return fmt.Errorf("unsupported kind %s", field.Type())
+		return nil
 	}
-	return err
+	parseError := errors.New(fmt.Sprintf("can't parse %s to %s", value, field.Type()))
+	switch field.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		n, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || field.OverflowUint(n) {
+			return parseError
+		}
+		field.SetUint(n)
+		break
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || field.OverflowInt(n) {
+			return parseError
+		}
+		field.SetInt(n)
+		break
+	case reflect.Bool:
+		field.SetBool(value == "1" || value == "true")
+		break
+	case reflect.Float32, reflect.Float64:
+		n, err := strconv.ParseFloat(value, field.Type().Bits())
+		if err != nil || field.OverflowFloat(n) {
+			return parseError
+		}
+		field.SetFloat(n)
+		break
+	case reflect.Struct:
+		logger.Debug(strings.ToLower(cType.DatabaseTypeName()))
+		if strings.ToLower(cType.DatabaseTypeName()) == "datetime" {
+			t, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				logger.Error(err)
+				return parseError
+			}
+			if field.Type() == reflect.TypeOf(t) {
+				field.Set(reflect.ValueOf(t))
+			}
+		} else {
+			return parseError
+		}
+		break
+	default:
+		return parseError
+	}
+	return nil
+	//var err error
+	//switch field.Kind() {
+	//case reflect.String:
+	//	field.SetString(value)
+	//	break
+	//case reflect.Int:
+	//	var i int64
+	//	i, err = strconv.ParseInt(value, 10, 64)
+	//	if err != nil {
+	//		err = errors.New("param type not match,require:int")
+	//	}
+	//	field.SetInt(i)
+	//	break
+	//case reflect.Bool:
+	//	b := false
+	//	b, err = strconv.ParseBool(value)
+	//	if err != nil {
+	//		err = errors.New("param type not match,require:bool")
+	//	}
+	//	field.SetBool(b)
+	//	break
+	//case reflect.Float64:
+	//	var floatV float64
+	//	floatV, err = strconv.ParseFloat(value, 64)
+	//	if err != nil {
+	//		err = errors.New("param type not match,require:float")
+	//	}
+	//	field.SetFloat(floatV)
+	//	break
+	//case reflect.Struct:
+	//	if cType.DatabaseTypeName() == "datatime"
+	//	break
+	//default:
+	//	return fmt.Errorf("unsupported kind %s", field.Kind())
+	//}
+	//return err
 }
 
 func formatDatetime(source string) string {
-	tmp := strings.Split(source, "+")
-	newValue := strings.Replace(tmp[0], "T", " ", 1)
-	t, err := time.Parse(Layout, newValue)
+	//tmp := strings.Split(source, "+")
+	//newValue := strings.Replace(tmp[0], "T", " ", 1)
+	t, err := time.Parse(time.RFC3339, source)
 	if err != nil {
 		return source
 	}
@@ -213,16 +349,27 @@ func formatBool(source string) (bool, error) {
 }
 
 func Query(db *mysql.DBConfig, Sql string, ptr interface{}, args ...interface{}) error {
-	if reflect.TypeOf(ptr).Kind() != reflect.Ptr {
+	//if reflect.TypeOf(ptr).Kind() != reflect.Ptr {
+	//	return errors.New("v must be pointer")
+	//}
+	rv := reflect.ValueOf(ptr)
+	if rv.Kind() != reflect.Ptr {
 		return errors.New("v must be pointer")
 	}
+
+	pv := rv.Elem()
+
 	err := mysql.Query(db, Sql, func(rows *sql.Rows) error {
 		columns, err := rows.Columns()
 		if err != nil {
 			return err
 		}
 		mapScan := NewMapStringScan(columns)
+		isEmpty := true
+
+		i := 0
 		for rows.Next() {
+			isEmpty = false
 			err = mapScan.Update(rows)
 			if err != nil {
 				logger.Error(err)
@@ -230,10 +377,39 @@ func Query(db *mysql.DBConfig, Sql string, ptr interface{}, args ...interface{})
 				result := mapScan.Get()
 				logger.Debug(result)
 			}
+			if pv.Kind() == reflect.Map || pv.Kind() == reflect.Struct {
+				err = mapScan.Unmarshal(rv)
+				if err != nil {
+					logger.Error(err)
+				}
+				break
+			} else if pv.Kind() == reflect.Slice {
+				//sliceItemType :=  pv.Elem().Kind()
+				if i >= pv.Cap() {
+					newcap := pv.Cap() + pv.Cap()/2
+					if newcap < 4 {
+						newcap = 4
+					}
+					newv := reflect.MakeSlice(pv.Type(), pv.Len(), newcap)
+					reflect.Copy(newv, pv)
+					pv.Set(newv)
+				}
+				if i >= pv.Len() {
+					pv.SetLen(i + 1)
+				}
+
+				err = mapScan.Unmarshal(pv.Index(i))
+				if err != nil {
+					logger.Error(err)
+					return err
+				}
+				i++
+			} else {
+				return errors.New("un support ptr type %s" + rv.Elem().Kind().String())
+			}
 		}
-		err = mapScan.Unmarshal(ptr)
-		if err != nil {
-			logger.Error(err)
+		if isEmpty {
+			return mysql.ErrorNotFound
 		}
 		return nil
 	}, args...)
